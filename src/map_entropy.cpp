@@ -52,7 +52,7 @@
 
 namespace map_entropy {
 
-double MapEntropy::computeEntropy( const pcl::PointCloud< pcl::PointXYZI >::Ptr cloud )
+double MapEntropy::computeEntropy( const pcl::PointCloud< pcl::PointXYZ >::Ptr cloud )
 {
 	Eigen::Vector4f centroid;
 	Eigen::Matrix3f covarianceMatrixNormalized = Eigen::Matrix3f::Identity();
@@ -102,7 +102,7 @@ double MapEntropy::computeEntropy( const pcl::PointCloud< pcl::PointXYZI >::Ptr 
 // 	return 0.5f*log(determinant);
 // }
 
-double MapEntropy::computePlaneVariance( const pcl::PointCloud< pcl::PointXYZI >::Ptr cloud )
+double MapEntropy::computePlaneVariance( const pcl::PointCloud< pcl::PointXYZ >::Ptr cloud )
 {
 
 	double meanDistTopQuarter = 0;
@@ -112,7 +112,7 @@ double MapEntropy::computePlaneVariance( const pcl::PointCloud< pcl::PointXYZI >
 	pcl::ModelCoefficients::Ptr coefficients (new pcl::ModelCoefficients);
 	pcl::PointIndices::Ptr inliers (new pcl::PointIndices);
 
-	pcl::SACSegmentation< pcl::PointXYZI > seg;
+	pcl::SACSegmentation< pcl::PointXYZ > seg;
 	seg.setOptimizeCoefficients (true);
 	seg.setModelType (pcl::SACMODEL_PLANE);
 	seg.setMethodType (pcl::SAC_RANSAC);
@@ -143,11 +143,129 @@ double MapEntropy::computePlaneVariance( const pcl::PointCloud< pcl::PointXYZI >
 	return meanDistTopQuarter;
 }
 
-void MapEntropy::computeEntroyAndVariance( const pcl::PointCloud< pcl::PointXYZI >::Ptr cloud )
+// void MapEntropy::computeEntroyAndVariance( const pcl::PointCloud< pcl::PointXYZ >::Ptr cloud )
+// {
+// 	pcl::KdTreeFLANN< pcl::PointXYZ > kdtree;
+// 	kdtree.setInputCloud (cloud);
+
+// 	pcl::copyPointCloud(*cloud, *cloudi_entropy_); //only initializes XYZI fields, we initialize entropy and planevariance here
+
+// 	#pragma omp parallel reduction (+:entropySum_, planeVarianceSum_, lonelyPoints_)
+// 	{
+// 		#pragma omp for schedule(dynamic)
+// 		for (size_t i = 0; i < cloud->points.size(); i += stepSize_ ) {
+
+// 			// print status
+// 			if( i % (cloud->points.size()/20) == 0 ){
+// 				int percent = i * 100 / cloud->points.size();
+// 				std::cout << percent << " %" << std::endl;
+// 			}
+
+// 			// search for neighbors in radius
+// 			std::vector<int> pointIdxRadiusSearch;
+// 			std::vector<float> pointRadiusSquaredDistance;
+// 			int numberOfNeighbors = kdtree.radiusSearch (cloud->points[i], radius_, pointIdxRadiusSearch, pointRadiusSquaredDistance);
+
+// 			// compute values if enough neighbors found
+// 			double localEntropy = 0;
+// 			double localPlaneVariance = 0;
+// 			if( numberOfNeighbors > minNeighbors_ || !punishSolitaryPoints_ ){
+// 				// save neighbors in localCloud
+// 				pcl::PointCloud< pcl::PointXYZ >::Ptr localCloud (new pcl::PointCloud< pcl::PointXYZ >);
+
+// 				for( size_t iz = 0; iz < pointIdxRadiusSearch.size(); ++iz ){
+// 					localCloud->points.push_back(cloud->points[ pointIdxRadiusSearch[iz] ] );
+// 				}
+
+// 				// compute entropy and plane variance
+// 				localEntropy = computeEntropy(localCloud);
+// 				if (withPlaneVariance_) {
+// 					localPlaneVariance = computePlaneVariance(localCloud);
+// 				}
+// 			}else{
+// 				localEntropy = std::numeric_limits<double>::infinity();
+// 				if (withPlaneVariance_)
+// 					localPlaneVariance = std::numeric_limits<double>::infinity();
+// 				lonelyPoints_++;
+// 			}
+
+// 			float out_entropy = std::numeric_limits<float>::infinity();
+// 			float out_planevariance = std::numeric_limits<float>::infinity();
+// 			if (withPlaneVariance_) {
+// 				if (std::isfinite(localPlaneVariance)){
+// 					planeVarianceSum_ += localPlaneVariance;
+// 					out_planevariance = static_cast<float>(localPlaneVariance);
+// 				}else{
+// 					// handle cases where no value could be computed
+// 					if( !punishSolitaryPoints_ ){
+// 						out_planevariance = 0;
+// 					}else{
+// 						planeVarianceSum_ += radius_;
+// 						out_planevariance = static_cast<float>(radius_);
+// 					}
+// 				}
+// 			}
+// 			if (std::isfinite(localEntropy)){
+// 				entropySum_ += localEntropy;
+// 				out_entropy = static_cast<float>(localEntropy);
+// 			} else if( !punishSolitaryPoints_ ){
+// 				out_entropy = 0;
+// 			} 
+
+// 			// add new point to output cloud
+// 			// #pragma omp critical
+// 			// {
+// 			// 	cloudi_entropy_->push_back( p );
+// 			// }
+// 			cloudi_entropy_->points[i].entropy = out_entropy;
+// 			cloudi_entropy_->points[i].planeVariance = out_planevariance;
+// 		}
+// 	}
+
+// 	// compute mean
+// 	double meanMapEntropy = entropySum_ / (static_cast<double>(cloud->points.size() / stepSize_));
+// 	double meanPlaneVariance = 0.0;
+// 	if (withPlaneVariance_)
+// 		meanPlaneVariance = planeVarianceSum_ / (static_cast<double>(cloud->points.size() / stepSize_));
+
+// 	std::cout << "--- " << std::endl;
+// 	std::cout << "Mean Map Entropy is " << meanMapEntropy << std::endl;
+// 	if (withPlaneVariance_)
+// 		std::cout << "Mean Plane Variance is " << meanPlaneVariance << std::endl;
+		
+// 	//concatenate the pointcloud fields
+// 	outputCloud_.reset (new pcl::PCLPointCloud2);
+// 	if (hasIntensityField_) {
+// 		pcl::toPCLPointCloud2 (*cloudi_entropy_, *outputCloud_);
+// 	} else {
+// 		pcl::copyPointCloud(*cloudi_entropy_, *cloud_entropy_);
+// 		pcl::toPCLPointCloud2 (*cloud_entropy_, *outputCloud_);
+// 	}
+
+// 	// for (auto& f : outputCloud_->fields)
+// 	// {
+// 	// 	PCL_INFO("field: %s\n", f.name.c_str());
+// 	// }
+// 	pcl::PCLPointCloud2::Ptr outputCloudConcat (new pcl::PCLPointCloud2);
+// 	pcl::concatenateFields(*outputCloud_, *inputCloud_, *outputCloudConcat);
+// 	outputCloud_.reset (new pcl::PCLPointCloud2);
+// 	pcl::copyPointCloud(*outputCloudConcat, *outputCloud_);
+	
+// 	//std::cout << "Used " << entropyTimer.getTime() << " milliseconds to compute values for " << cloud_xyz->points.size() << " points." << std::endl;
+
+// 	int pointsActuallyUsed = (cloud->points.size() / stepSize_) - lonelyPoints_;
+
+// 	if( punishSolitaryPoints_ && (pointsActuallyUsed < lonelyPoints_) ){
+// 		std::cout << "Used more solitary than not-solitary points to compute the values. You should consider changing the parameters." << std::endl;
+// 	}
+// }
+
+void MapEntropy::computeEntroyAndVariance( const pcl::PointCloud< pcl::PointXYZ >::Ptr cloud )
 {
-	pcl::KdTreeFLANN< pcl::PointXYZI > kdtree;
+	pcl::KdTreeFLANN< pcl::PointXYZ > kdtree;
 	kdtree.setInputCloud (cloud);
-	typedef pcl::PointCloud< pcl::PointXYZI > PtCld;
+
+	pcl::copyPointCloud(*cloud, *cloudi_entropy_); //only initializes XYZI fields, we initialize entropy and planevariance here
 
 	#pragma omp parallel reduction (+:entropySum_, planeVarianceSum_, lonelyPoints_)
 	{
@@ -170,7 +288,7 @@ void MapEntropy::computeEntroyAndVariance( const pcl::PointCloud< pcl::PointXYZI
 			double localPlaneVariance = 0;
 			if( numberOfNeighbors > minNeighbors_ || !punishSolitaryPoints_ ){
 				// save neighbors in localCloud
-				pcl::PointCloud< pcl::PointXYZI >::Ptr localCloud (new pcl::PointCloud< pcl::PointXYZI >);
+				pcl::PointCloud< pcl::PointXYZ >::Ptr localCloud (new pcl::PointCloud< pcl::PointXYZ >);
 
 				for( size_t iz = 0; iz < pointIdxRadiusSearch.size(); ++iz ){
 					localCloud->points.push_back(cloud->points[ pointIdxRadiusSearch[iz] ] );
@@ -188,44 +306,30 @@ void MapEntropy::computeEntroyAndVariance( const pcl::PointCloud< pcl::PointXYZI
 				lonelyPoints_++;
 			}
 
-			//save values in new point
-			PointXYZIWithEntropy p;
-			p.x = cloud->points[i].x;
-			p.y = cloud->points[i].y;
-			p.z = cloud->points[i].z;
-			p.intensity = cloud->points[i].intensity;
-			p.planeVariance = std::numeric_limits<float>::infinity();
-			p.entropy = std::numeric_limits<float>::infinity();
-
+			float out_entropy = std::numeric_limits<float>::infinity();
+			float out_planevariance = std::numeric_limits<float>::infinity();
 			if (withPlaneVariance_) {
 				if (std::isfinite(localPlaneVariance)){
 					planeVarianceSum_ += localPlaneVariance;
-					p.planeVariance = static_cast<float>(localPlaneVariance);
+					out_planevariance = static_cast<float>(localPlaneVariance);
 				}else{
 					// handle cases where no value could be computed
 					if( !punishSolitaryPoints_ ){
-						p.planeVariance = 0;
+						out_planevariance = 0;
 					}else{
 						planeVarianceSum_ += radius_;
-						p.planeVariance = static_cast<float>(radius_);
+						out_planevariance = static_cast<float>(radius_);
 					}
 				}
 			}
 			if (std::isfinite(localEntropy)){
 				entropySum_ += localEntropy;
-				p.entropy = static_cast<float>(localEntropy);
+				out_entropy = static_cast<float>(localEntropy);
 			} else if( !punishSolitaryPoints_ ){
-				p.entropy = 0;
-			} /*else{
-				// handle cases where no value could be computed
-				out_entropy = std::numeric_limits<float>::infinity();
-			} */
-
-			// add new point to output cloud
-			#pragma omp critical
-			{
-				cloudi_entropy_->push_back( p );
+				out_entropy = 0;
 			}
+			cloudi_entropy_->points[i].entropy = out_entropy;
+			cloudi_entropy_->points[i].planeVariance = out_planevariance;
 		}
 	}
 
@@ -444,14 +548,15 @@ void MapEntropy::computeEntropyOrFilter()
 	entropyTimer.reset();
 
 	if (!passFilter_) {
-		if (hasIntensityField_) {
-			pcl::fromPCLPointCloud2 (*inputCloud_, *cloud_xyzi_);
-			computeEntroyAndVariance(cloud_xyzi_);
-		} else {
+		// if (hasIntensityField_) {
+		// 	pcl::fromPCLPointCloud2 (*inputCloud_, *cloud_xyzi_);
+		// 	computeEntroyAndVariance(cloud_xyzi_);
+		// } else {
 			pcl::fromPCLPointCloud2 (*inputCloud_, *cloud_xyz_);
-			pcl::copyPointCloud(*cloud_xyz_, *cloud_xyzi_);
-			computeEntroyAndVariance(cloud_xyzi_);
-		}
+			//pcl::copyPointCloud(*cloud_xyz_, *cloud_xyzi_);
+			// computeEntroyAndVariance(cloud_xyzi_);
+			computeEntroyAndVariance(cloud_xyz_);
+		// }
 	} else {
 		filterPointCloud();
 	}

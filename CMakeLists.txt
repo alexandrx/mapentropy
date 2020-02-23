@@ -1,5 +1,8 @@
 cmake_minimum_required(VERSION 3.1 FATAL_ERROR)
-
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE "Release" CACHE STRING
+            "Default build type: Release" FORCE)
+endif()
 project(MeanMapEntropy)
 
 set(CMAKE_CXX_STANDARD 14) # C++14...

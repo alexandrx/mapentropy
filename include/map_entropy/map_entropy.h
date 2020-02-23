@@ -40,11 +40,11 @@ public:
     MapEntropy();
     MapEntropy( int argc, char** argv );
 
-    double computeEntropy( const pcl::PointCloud< pcl::PointXYZI >::Ptr cloud );
+    double computeEntropy( const pcl::PointCloud< pcl::PointXYZ >::Ptr cloud );
 
-    double computePlaneVariance( const pcl::PointCloud< pcl::PointXYZI >::Ptr cloud );
+    double computePlaneVariance( const pcl::PointCloud< pcl::PointXYZ >::Ptr cloud );
 
-    void computeEntroyAndVariance( const pcl::PointCloud< pcl::PointXYZI >::Ptr cloud );
+    void computeEntroyAndVariance( const pcl::PointCloud< pcl::PointXYZ >::Ptr cloud );
 
     void filterPointCloud();
     void computeEntropyOrFilter();
