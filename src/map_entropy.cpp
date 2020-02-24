@@ -267,7 +267,11 @@ void MapEntropy::computeEntroyAndVariance( const pcl::PointCloud< pcl::PointXYZ 
 
 	pcl::copyPointCloud(*cloud, *cloudi_entropy_); //only initializes XYZI fields, we initialize entropy and planevariance here
 
-	#pragma omp parallel reduction (+:entropySum_, planeVarianceSum_, lonelyPoints_)
+	int me_lonelyPointsSum = 0;
+	float me_entropySum = 0.0;
+	float me_planeVarianceSum = 0.0;
+
+	#pragma omp parallel reduction (+:me_entropySum, me_planeVarianceSum, me_lonelyPointsSum)
 	{
 		#pragma omp for schedule(dynamic)
 		for (size_t i = 0; i < cloud->points.size(); i += stepSize_ ) {
@@ -303,27 +307,27 @@ void MapEntropy::computeEntroyAndVariance( const pcl::PointCloud< pcl::PointXYZ 
 				localEntropy = std::numeric_limits<double>::infinity();
 				if (withPlaneVariance_)
 					localPlaneVariance = std::numeric_limits<double>::infinity();
-				lonelyPoints_++;
+				me_lonelyPointsSum++;
 			}
 
 			float out_entropy = std::numeric_limits<float>::infinity();
 			float out_planevariance = std::numeric_limits<float>::infinity();
 			if (withPlaneVariance_) {
 				if (std::isfinite(localPlaneVariance)){
-					planeVarianceSum_ += localPlaneVariance;
+					me_planeVarianceSum += localPlaneVariance;
 					out_planevariance = static_cast<float>(localPlaneVariance);
 				}else{
 					// handle cases where no value could be computed
 					if( !punishSolitaryPoints_ ){
 						out_planevariance = 0;
 					}else{
-						planeVarianceSum_ += radius_;
+						me_planeVarianceSum += radius_;
 						out_planevariance = static_cast<float>(radius_);
 					}
 				}
 			}
 			if (std::isfinite(localEntropy)){
-				entropySum_ += localEntropy;
+				me_entropySum += localEntropy;
 				out_entropy = static_cast<float>(localEntropy);
 			} else if( !punishSolitaryPoints_ ){
 				out_entropy = 0;
@@ -332,6 +336,9 @@ void MapEntropy::computeEntroyAndVariance( const pcl::PointCloud< pcl::PointXYZ 
 			cloudi_entropy_->points[i].planeVariance = out_planevariance;
 		}
 	}
+	lonelyPoints_ = me_lonelyPointsSum;
+        entropySum_ = me_entropySum;
+        planeVarianceSum_ = me_planeVarianceSum;
 
 	// compute mean
 	double meanMapEntropy = entropySum_ / (static_cast<double>(cloud->points.size() / stepSize_));
