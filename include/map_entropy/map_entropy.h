@@ -40,11 +40,13 @@ public:
     MapEntropy();
     MapEntropy( int argc, char** argv );
 
-    double computeEntropy( const pcl::PointCloud< pcl::PointXYZ >::Ptr cloud );
+    double computeEntropy( const pcl::PointCloud< pcl::PointXYZ >::Ptr& cloud );
+    double computeEntropy( const pcl::PointCloud< pcl::PointXYZ >::Ptr& cloud, const std::vector<int>& indices );
 
-    double computePlaneVariance( const pcl::PointCloud< pcl::PointXYZ >::Ptr cloud );
+    double computePlaneVariance( const pcl::PointCloud< pcl::PointXYZ >::Ptr& cloud );
+    double computePlaneVariance( const pcl::PointCloud< pcl::PointXYZ >::Ptr& cloud, const std::vector<int>& indices );
 
-    void computeEntroyAndVariance( const pcl::PointCloud< pcl::PointXYZ >::Ptr cloud );
+    void computeEntroyAndVariance( const pcl::PointCloud< pcl::PointXYZ >::Ptr& cloud );
 
     void filterPointCloud();
     void computeEntropyOrFilter();
@@ -73,6 +75,8 @@ private:
     double entropySum_;
     double planeVarianceSum_;
     int lonelyPoints_;
+    double meanMapEntropy_;
+    double meanPlaneVariance_;
     pcl::PCLPointCloud2::Ptr inputCloud_;
     pcl::PCLPointCloud2::Ptr outputCloud_;
     Eigen::Vector4f origin_;
