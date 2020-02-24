@@ -437,11 +437,11 @@ MapEntropy::MapEntropy( int argc, char** argv ) :
 {
 	pcl::console::parse_argument (argc, argv, "-stepsize", stepSize_);
     pcl::console::parse_argument (argc, argv, "-radius", radius_);
-	punishSolitaryPoints_ = pcl::console::find_switch (argc, argv, "-punishSolitaryPoints");
+	pcl::console::parse_argument (argc, argv, "-punishSolitaryPoints", punishSolitaryPoints_);
     pcl::console::parse_argument (argc, argv, "-minNeighbors", minNeighbors_);
-    withPlaneVariance_ = pcl::console::find_switch (argc, argv, "-planevariance");
-    saveASCII_ = pcl::console::find_switch (argc, argv, "-ascii");
-    passFilter_ = pcl::console::find_switch (argc, argv, "-passfilter");
+    pcl::console::parse_argument (argc, argv, "-planevariance", withPlaneVariance_);
+    pcl::console::parse_argument (argc, argv, "-ascii", saveASCII_);
+    pcl::console::parse_argument (argc, argv, "-passfilter", passFilter_);
 	pcl::console::parse_argument (argc, argv, "-filterField", filterField_);
     pcl::console::parse_argument (argc, argv, "-minLimit", minLimit_);
     pcl::console::parse_argument (argc, argv, "-maxLimit", maxLimit_);
