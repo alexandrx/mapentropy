@@ -417,7 +417,8 @@ int MapEntropy::readPointCloud( int argc, char** argv )
 	{
 		PCL_INFO("%s, ", f.name.c_str());
 	}
-	PCL_INFO("]\n");
+	PCL_INFO("   Input cloud width: %d, height: %d \n", inputCloud_->width, inputCloud_->height);
+	//PCL_INFO("]\n");
 	//std::cout << "X field: " << hasXField_ << ", Y field: " << hasYField_ << ", Z field: " << hasZField_ << ", intensity field: " << hasIntensityField_ << ", entropy field: " << hasEntropyField_ << ", plane variance field: " << hasPlaneVarianceField_ << std::endl;
 	
 	if (!(hasXField_ && hasYField_ && hasZField_))
@@ -499,7 +500,7 @@ void MapEntropy::computeEntropyOrFilter()
 		filterPointCloud();
 	}
 
-	std::cout << "Used " << entropyTimer.getTime() << " milliseconds to filter values. Input size " << inputCloud_->width * inputCloud_->height << " points, output size " << outputCloud_->width * outputCloud_->height << " points." << std::endl;
+	PCL_INFO("Used %.6f seconds to filter values. Input size is %d points, output size is %d points.\n", entropyTimer.getTimeSeconds(), (inputCloud_->width * inputCloud_->height), (outputCloud_->width * outputCloud_->height));
 }
 
 }  // namespace

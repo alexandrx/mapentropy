@@ -8,7 +8,7 @@ project(MeanMapEntropy)
 set(CMAKE_CXX_STANDARD 14) # C++14...
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(PCL 1.7 REQUIRED)
+find_package(PCL 1.10 REQUIRED)
 
 include_directories(${PCL_INCLUDE_DIRS} include)
 link_directories(${PCL_LIBRARY_DIRS})
