@@ -1,0 +1,33 @@
+<!-- -*- mode: XML -*- -->
+<!-- Author : Alexander Carballo, Nagoya University  -->
+
+<launch>
+
+  <arg name="stepsize" default="1" doc="Step (increase) size to query the points"/>
+  <arg name="radius" default="1.0" doc="Size of the search radius (kdtree based)"/>
+  <arg name="punishSolitaryPoints" default="True" doc="Penalize points with very few neighbors"/>
+  <arg name="minNeighbors" default="15" doc="Minimum number of neighbors in search radius"/>
+  <arg name="planevariance" default="True" doc="Compute also the plane variance"/>
+  <arg name="passfilter" default="False" doc="Do not compute entropy, instead bandpass filter points in the pointcloud"/>
+  <arg name="filterField" default="" doc="Field name (ex., x,y,z,intensity, etc) to filter data"/>
+  <arg name="minLimit" default="-INF" doc="Minimum passing threshold"/>
+  <arg name="maxLimit" default="INF" doc="Maximum passing threshold"/>
+  <arg name="input_topic" default="" doc="Name of the input pointcloud topic"/>
+  <arg name="output_topic" default="" doc="Name of the output pointcloud topic"/>
+  <arg name="output_frame" default="" doc="Name of the frame_id of the output pointcloud"/>
+
+  <node pkg="mean_map_entropy" type="mean_map_entropy" name="mean_map_entropy" output="screen" >
+    <param name="stepsize" value="$(arg stepsize)"/>
+    <param name="radius" value="$(arg radius)"/>
+    <param name="punishSolitaryPoints" value="$(arg punishSolitaryPoints)"/>
+    <param name="minNeighbors" value="$(arg minNeighbors)"/>
+    <param name="planevariance" value="$(arg planevariance)"/>
+    <param name="passfilter" value="$(arg passfilter)"/>
+    <param name="minLimit" value="$(arg minLimit)"/>
+    <param name="maxLimit" value="$(arg maxLimit)"/>
+    <param name="input_topic" value="$(arg input_topic)"/>
+    <param name="output_topic" value="$(arg output_topic)"/>
+    <param name="output_frame" value="$(arg output_frame)"/>
+  </node>
+
+</launch>

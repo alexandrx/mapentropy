@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>mean_map_entropy</name>
+  <version>0.2.0</version>
+  <description>Computes the *Mean Map Entropy* and the *Mean Plane Variance* of a point cloud.</description>
+  <author> David Droeschel</author>
+  <author> Jan Razlaw</author>
+  <author> Alexander Carballo</author>
+  <maintainer email="miyamoto.musashi2@gmail.com">Alexander Carballo</maintainer>
+  <license>Apache 2</license>
+  <buildtool_depend>catkin</buildtool_depend>
+
+  <depend>roscpp</depend>
+  <depend>std_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>pcl_ros</depend>
+  <depend>pcl_conversions</depend>
+  <depend>libpcl-all-dev</depend>
+
+  <export></export>
+</package>

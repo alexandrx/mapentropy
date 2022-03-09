@@ -37,9 +37,9 @@ struct PointXYZWithEntropy
 struct PointXYZIWithEntropy
 {
     PCL_ADD_POINT4D;                    // preferred way of adding a XYZ + padding
-    float intensity;                    // laser intensity reading
-    float entropy;
-    float planeVariance;
+    float intensity;                    // laser intensity re ading
+    float entropy;                     // entropy of the point
+    float planeVariance;             // plane variance of the point
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW  // make sure our new allocators are aligned
 } EIGEN_ALIGN16;                            // enforce SSE padding for correct memory alignment
 

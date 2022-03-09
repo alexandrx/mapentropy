@@ -30,15 +30,13 @@
 #include <omp.h>
 
 #include <iostream>
-
-#include <pcl/io/pcd_io.h>
+#include <unistd.h> //for sync
+#include <string>
 #include <pcl/point_types.h>
-#include <pcl/common/common.h>
+#include <pcl/io/pcd_io.h>
 #include <pcl/common/geometry.h>
 #include <pcl/common/centroid.h>
 #include <pcl/common/transforms.h>
-#include <pcl/common/time.h>
-#include <pcl/console/parse.h>
 #include <pcl/search/kdtree.h>
 #include <pcl/sample_consensus/method_types.h>
 #include <pcl/sample_consensus/model_types.h>
@@ -51,6 +49,44 @@
 #include <map_entropy/map_entropy.h>
 
 namespace map_entropy {
+
+MapEntropy::MapEntropy():
+	stepSize_(1),
+	radius_(0.3),
+	minNeighbors_(15),
+	minLimit_(-std::numeric_limits<double>::infinity()),
+	maxLimit_(std::numeric_limits<double>::infinity()),
+	filterField_(std::string("")),
+	punishSolitaryPoints_(true),
+	withPlaneVariance_(true),
+	saveASCII_(false),
+	passFilter_(false),
+	hasXField_(false),
+	hasYField_(false),
+	hasZField_(false),
+	hasIntensityField_(false),
+	hasEntropyField_(false),
+	hasIntensityEntropyField_(false),
+	hasPlaneVarianceField_(false),
+	entropySum_(0.f),
+	planeVarianceSum_(0.f),
+	lonelyPoints_(0),
+	meanMapEntropy_(0.f),
+	meanPlaneVariance_(0.f),
+	cloud_xyz_(new pcl::PointCloud<pcl::PointXYZ>),
+	cloud_entropy_(new pcl::PointCloud< PointXYZWithEntropy >),
+	inputCloud_(new pcl::PCLPointCloud2),
+	outputCloud_(new pcl::PCLPointCloud2),
+	grid_divide_(false),
+	divide_only_(false),
+	grid_size_(0.f),
+    output_dir_("./"),
+    name_prefix_("grid_")
+{
+	fileIndices_.clear();
+	fileNames_.clear();
+	ptcldGrid_.clear();
+}
 
 double MapEntropy::computeEntropy( const pcl::PointCloud< pcl::PointXYZ >::Ptr& cloud )
 {
@@ -116,6 +152,10 @@ double MapEntropy::computePlaneVariance( const pcl::PointCloud< pcl::PointXYZ >:
 {
 	double meanDistTopQuarter = 0;
 
+	if (cloud->points.size() < 3) {
+		return std::numeric_limits<double>::infinity();
+	}
+
 	std::vector<double> sortedDistances;
 
 	// fit plane using RANSAC
@@ -131,7 +171,7 @@ double MapEntropy::computePlaneVariance( const pcl::PointCloud< pcl::PointXYZ >:
 	seg.segment (*inliers, *coefficients);
 
 	if( inliers->indices.size() < 3 ){
-		//PCL_ERROR ("Could not estimate a planar model for the given subset of points.");
+		//std::cout << "ERROR: Could not estimate a planar model for the given subset of points." << std::endl;
 		meanDistTopQuarter = std::numeric_limits<double>::infinity();
 	}else{
 		// compute the distances of the points to the plane
@@ -175,7 +215,7 @@ double MapEntropy::computePlaneVariance( const pcl::PointCloud< pcl::PointXYZ >:
 	seg.segment (*inliers, *coefficients);
 
 	if( inliers->indices.size() < 3 ){
-		//PCL_ERROR ("Could not estimate a planar model for the given subset of points.");
+		//std::cout << "Could not estimate a planar model for the given subset of points." << std::endl;
 		meanDistTopQuarter = std::numeric_limits<double>::infinity();
 	}else{
 		// compute the distances of the points to the plane
@@ -204,6 +244,7 @@ void MapEntropy::computeEntroyAndVariance(const pcl::PointCloud< pcl::PointXYZ >
 	int me_lonelyPointsSum = 0;
 	double me_entropySum = 0.0;
 	double me_planeVarianceSum = 0.0;
+	cloud_entropy_.reset(new pcl::PointCloud< PointXYZWithEntropy >);
 
 	#pragma omp parallel reduction (+:me_entropySum, me_planeVarianceSum, me_lonelyPointsSum)
 	{
@@ -267,6 +308,7 @@ void MapEntropy::computeEntroyAndVariance(const pcl::PointCloud< pcl::PointXYZ >
 				// handle cases where no value could be computed
 				p.entropy = 0;
 			}
+			// p.planeEntropy = p.entropy * (1.0 - p.planeVariance); 
 
 			// add new point to output cloud
 			#pragma omp critical
@@ -286,6 +328,7 @@ void MapEntropy::computeEntroyAndVariance(const pcl::PointCloud< pcl::PointXYZ >
 		std::cout << "Mean Plane Variance is " << meanPlaneVariance_ << std::endl;
 
 	//concatenate the pointcloud fields
+	outputCloud_.reset (new pcl::PCLPointCloud2);
 	pcl::toPCLPointCloud2 (*cloud_entropy_, *outputCloud_);
 
 	pcl::PCLPointCloud2::Ptr outputCloudConcat (new pcl::PCLPointCloud2);
@@ -300,106 +343,239 @@ void MapEntropy::computeEntroyAndVariance(const pcl::PointCloud< pcl::PointXYZ >
 	}
 }
 
-MapEntropy::MapEntropy():
-	stepSize_(1),
-	radius_(0.3),
-	minNeighbors_(15),
-	minLimit_(std::numeric_limits<double>::lowest()),
-	maxLimit_(std::numeric_limits<double>::infinity()),
-	filterField_(std::string("entropy")),
-	punishSolitaryPoints_(true),
-	withPlaneVariance_(true),
-	saveASCII_(false),
-	passFilter_(false),
-	hasXField_(false),
-	hasYField_(false),
-	hasZField_(false),
-	hasIntensityField_(false),
-	hasEntropyField_(false),
-	hasIntensityEntropyField_(false),
-	hasPlaneVarianceField_(false),
-	entropySum_(0.f),
-	planeVarianceSum_(0.f),
-	lonelyPoints_(0),
-	meanMapEntropy_(0.f),
-	meanPlaneVariance_(0.f),
-	cloud_xyz_(new pcl::PointCloud<pcl::PointXYZ>),
-	cloud_xyzi_(new pcl::PointCloud<pcl::PointXYZI>),
-	cloud_entropy_(new pcl::PointCloud< PointXYZWithEntropy >),
-	cloudi_entropy_(new pcl::PointCloud< PointXYZIWithEntropy >),
-	inputCloud_(new pcl::PCLPointCloud2),
-	outputCloud_(new pcl::PCLPointCloud2)
+/** \note: This code is under development, not tested. 
+ *  The idea is to speed up the entropy calculation using a grid instead of the costly radius search.
+ */
+void MapEntropy::computeEntroyAndVarianceFromGrid()
 {
+	int me_lonelyPointsSum = 0;
+	double me_entropySum = 0.0;
+	double me_planeVarianceSum = 0.0;
+	size_t points_count = 0;
 
-	fileIndices_.clear();
-	fileNames_.clear();
-}
+	const auto maxCols = ptcldGrid_.divX();
+	const auto maxRows = ptcldGrid_.divY();
 
-MapEntropy::MapEntropy( int argc, char** argv ) :
-	stepSize_(1),
-	radius_(0.3),
-	minNeighbors_(15),
-	minLimit_(std::numeric_limits<double>::lowest()),
-	maxLimit_(std::numeric_limits<double>::infinity()),
-	filterField_(std::string("entropy")),
-	punishSolitaryPoints_(true),
-	withPlaneVariance_(true),
-	saveASCII_(false),
-	passFilter_(false),
-	hasXField_(false),
-	hasYField_(false),
-	hasZField_(false),
-	hasIntensityField_(false),
-	hasEntropyField_(false),
-	hasIntensityEntropyField_(false),
-	hasPlaneVarianceField_(false),
-	entropySum_(0.f),
-	planeVarianceSum_(0.f),
-	lonelyPoints_(0),
-	meanMapEntropy_(0.f),
-	meanPlaneVariance_(0.f),
-	cloud_xyz_(new pcl::PointCloud<pcl::PointXYZ>),
-	cloud_xyzi_(new pcl::PointCloud<pcl::PointXYZI>),
-	cloud_entropy_(new pcl::PointCloud< PointXYZWithEntropy >),
-	cloudi_entropy_(new pcl::PointCloud< PointXYZIWithEntropy >),
-	inputCloud_(new pcl::PCLPointCloud2),
-	outputCloud_(new pcl::PCLPointCloud2)
-{
-	pcl::console::parse_argument (argc, argv, "-stepsize", stepSize_);
-    pcl::console::parse_argument (argc, argv, "-radius", radius_);
-	pcl::console::parse_argument (argc, argv, "-punishSolitaryPoints", punishSolitaryPoints_);
-    pcl::console::parse_argument (argc, argv, "-minNeighbors", minNeighbors_);
-    pcl::console::parse_argument (argc, argv, "-planevariance", withPlaneVariance_);
-    pcl::console::parse_argument (argc, argv, "-ascii", saveASCII_);
-    pcl::console::parse_argument (argc, argv, "-passfilter", passFilter_);
-	pcl::console::parse_argument (argc, argv, "-filterField", filterField_);
-    pcl::console::parse_argument (argc, argv, "-minLimit", minLimit_);
-    pcl::console::parse_argument (argc, argv, "-maxLimit", maxLimit_);
+	//#pragma omp parallel reduction (+:me_entropySum, me_planeVarianceSum, me_lonelyPointsSum)
+	#pragma omp parallel
+	{
+		#pragma omp for schedule(dynamic)
+		for (int idx = 0; idx < ptcldGrid_.size(); idx++) {
+			std::pair<size_t, size_t> rc = ptcldGrid_.getRowCol(idx);
+			size_t row = rc.first;
+			size_t col = rc.second;
+			pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
 
-	fileIndices_.clear();
-	fileNames_.clear();
-}
+			// print status
+			if( idx % (ptcldGrid_.size()/20) == 0 ){
+				int percent = idx * 100 / ptcldGrid_.size();
+				std::cout << percent << " %" << std::endl;
+			}
 
-int MapEntropy::readPointCloud( int argc, char** argv )
-{
-	pcl::PCDReader pcdR;
+			//if no points in this grid, skip it
+			if (!ptcldGrid_.at(row,col).localCloud->points.size()) {
+				//std::cout << "row: " << row << ", col: " << col << ", id: " << idx << " is empty!!! skipping this cell" << std::endl;
+				continue;
+			}
+			std::cout << "row: " << row << ", col: " << col << ", id: " << idx << ", finding neighboring cells.. maxRows: " << maxRows << ", maxCols: " << maxCols << std::endl;
 
-	// get pointcloud
-	fileIndices_ = pcl::console::parse_file_extension_argument (argc, argv, ".pcd");
-	for (auto i : fileIndices_) {
-		fileNames_.push_back( std::string( argv[i] ) );
+			//find neighboring grid cells
+			if (row == 0 && col == 0) { // bottom left corner
+				// self + 3 neighbors 
+				//concatenate the neighbors
+				*cloud += *ptcldGrid_.at(row,col).localCloud;
+				*cloud += *ptcldGrid_.at(row,col+1).localCloud;
+				*cloud += *ptcldGrid_.at(row+1,col).localCloud;
+				*cloud += *ptcldGrid_.at(row+1,col+1).localCloud;
+			} else if (row == 0 && col == maxCols-1) { // bottom right corner
+				// self + 3 neighbors 
+				//concatenate the neighbors
+				*cloud += *ptcldGrid_.at(row,col-1).localCloud;
+				*cloud += *ptcldGrid_.at(row,col).localCloud;
+				*cloud += *ptcldGrid_.at(row+1,col-1).localCloud;
+				*cloud += *ptcldGrid_.at(row+1,col).localCloud;
+			} else if (row == maxRows-1 && col == 0) { // top left corner
+				// self + 3 neighbors
+				//concatenate the neighbors
+				*cloud += *ptcldGrid_.at(row-1,col).localCloud;
+				*cloud += *ptcldGrid_.at(row-1,col+1).localCloud;
+				*cloud += *ptcldGrid_.at(row,col).localCloud;
+				*cloud += *ptcldGrid_.at(row,col+1).localCloud;
+			} else if (row == maxRows-1 && col == maxCols-1) { // top right corner
+				// self + 3 neighbors
+				//concatenate the neighbors
+				*cloud += *ptcldGrid_.at(row-1,col-1).localCloud;
+				*cloud += *ptcldGrid_.at(row-1,col).localCloud;
+				*cloud += *ptcldGrid_.at(row,col-1).localCloud;
+				*cloud += *ptcldGrid_.at(row,col).localCloud;
+			} else if (row == 0 && col < maxCols-1) { // bottom border
+				// self + 5 neighbors
+				//concatenate the neighbors
+				*cloud += *ptcldGrid_.at(row,col-1).localCloud;
+				*cloud += *ptcldGrid_.at(row,col).localCloud;
+				*cloud += *ptcldGrid_.at(row,col+1).localCloud;
+				*cloud += *ptcldGrid_.at(row+1,col-1).localCloud;
+				*cloud += *ptcldGrid_.at(row+1,col).localCloud;
+				*cloud += *ptcldGrid_.at(row+1,col+1).localCloud;
+			} else if (row < maxRows-1 && col == 0) { //left most border
+				// self + 5 neighbors
+				//concatenate the neighbors
+				*cloud += *ptcldGrid_.at(row-1,col).localCloud;
+				*cloud += *ptcldGrid_.at(row-1,col+1).localCloud;
+				*cloud += *ptcldGrid_.at(row,col).localCloud;
+				*cloud += *ptcldGrid_.at(row,col+1).localCloud;
+				*cloud += *ptcldGrid_.at(row+1,col).localCloud;
+				*cloud += *ptcldGrid_.at(row+1,col+1).localCloud;
+			} else if (row == maxRows-1 && col < maxCols-1) { // top border
+				// self + 5 neighbors
+				//concatenate the neighbors
+				*cloud += *ptcldGrid_.at(row-1,col-1).localCloud;
+				*cloud += *ptcldGrid_.at(row-1,col).localCloud;
+				*cloud += *ptcldGrid_.at(row-1,col+1).localCloud;
+				*cloud += *ptcldGrid_.at(row,col-1).localCloud;
+				*cloud += *ptcldGrid_.at(row,col).localCloud;
+				*cloud += *ptcldGrid_.at(row,col+1).localCloud;
+			} else if (row < maxRows-1 && col == maxCols-1) { //right most border
+				// self + 5 neighbors
+				//concatenate the neighbors
+				*cloud += *ptcldGrid_.at(row-1,col-1).localCloud;
+				*cloud += *ptcldGrid_.at(row-1,col).localCloud;
+				*cloud += *ptcldGrid_.at(row,col-1).localCloud;
+				*cloud += *ptcldGrid_.at(row,col).localCloud;
+				*cloud += *ptcldGrid_.at(row+1,col-1).localCloud;
+				*cloud += *ptcldGrid_.at(row+1,col).localCloud;
+			} else {
+				// the general case
+				//concatenate the neighbors
+				*cloud += *ptcldGrid_.at(row-1,col-1).localCloud;
+				*cloud += *ptcldGrid_.at(row-1,col).localCloud;
+				*cloud += *ptcldGrid_.at(row-1,col+1).localCloud;
+				*cloud += *ptcldGrid_.at(row,col-1).localCloud;
+				*cloud += *ptcldGrid_.at(row,col).localCloud;
+				*cloud += *ptcldGrid_.at(row,col+1).localCloud;
+				*cloud += *ptcldGrid_.at(row+1,col-1).localCloud;
+				*cloud += *ptcldGrid_.at(row+1,col).localCloud;
+				*cloud += *ptcldGrid_.at(row+1,col+1).localCloud;
+			}
+			std::cout << "row: " << row << ", col: " << col << ", id: " << idx << ", localCloud size: " << ptcldGrid_.at(row,col).localCloud->points.size() << ", merged cloud size: " << cloud->points.size() << std::endl;
+
+			//create the KdTree for the local neighborhood
+			pcl::KdTreeFLANN< pcl::PointXYZ > kdtree;
+			kdtree.setInputCloud (cloud);
+			std::cout << "kdtree with " << cloud->points.size() << " points" << std::endl;
+
+			//process the concatenated cloud
+			for (size_t i = 0; i < ptcldGrid_.at(row,col).localCloud->points.size(); i += stepSize_ ) {
+				// search for neighbors in radius
+				std::vector<int> pointIdxRadiusSearch;
+				std::vector<float> pointRadiusSquaredDistance;
+				int numberOfNeighbors = kdtree.radiusSearch (ptcldGrid_[idx].localCloud->points[i], radius_, pointIdxRadiusSearch, pointRadiusSquaredDistance);
+
+				// compute values if enough neighbors found
+				double localEntropy = 0;
+				double localPlaneVariance = 0;
+				if( numberOfNeighbors > minNeighbors_ || !punishSolitaryPoints_ ){
+					// save neighbors in localCloud
+					pcl::PointCloud< pcl::PointXYZ >::Ptr localCloud (new pcl::PointCloud< pcl::PointXYZ >);
+
+					for( size_t iz = 0; iz < pointIdxRadiusSearch.size(); ++iz ){
+						localCloud->points.push_back(ptcldGrid_[idx].localCloud->points[ pointIdxRadiusSearch[iz] ] );
+					}
+
+					// compute entropy and plane variance
+					localEntropy = computeEntropy(localCloud);
+					localPlaneVariance = computePlaneVariance(localCloud);
+				}else{
+					localEntropy = std::numeric_limits<double>::infinity();
+					localPlaneVariance = std::numeric_limits<double>::infinity();
+					ptcldGrid_[idx].lonelyPointsSum++;
+				}
+
+				// save values in new point
+				PointXYZWithEntropy p;
+				p.x = ptcldGrid_[idx].localCloud->points[i].x;
+				p.y = ptcldGrid_[idx].localCloud->points[i].y;
+				p.z = ptcldGrid_[idx].localCloud->points[i].z;
+
+				if (std::isfinite(localPlaneVariance)){
+					ptcldGrid_[idx].planeVarianceSum += localPlaneVariance;
+					p.planeVariance = static_cast<float>(localPlaneVariance);
+				}else{
+					// handle cases where no value could be computed
+					if( !punishSolitaryPoints_ ){
+						p.planeVariance = 0;
+					}else{
+						ptcldGrid_[idx].planeVarianceSum += radius_;
+						p.planeVariance = static_cast<float>(radius_);
+					}
+				}
+				if (std::isfinite(localEntropy)){
+					ptcldGrid_[idx].entropySum += localEntropy;
+					p.entropy = static_cast<float>(localEntropy);
+				}else{
+					// handle cases where no value could be computed
+					p.entropy = 0;
+				}
+
+				// add new point to output cloud
+				#pragma omp critical
+				{
+					ptcldGrid_[idx].cloud_entropy->push_back( p );
+				}
+			} // for local cloud points
+			std::cout << "..... done!" << std::endl;
+		}  // parallel for
+	}  // pragma parallel
+
+	for (int idx = 0; idx < ptcldGrid_.size(); idx++) {
+		me_entropySum += ptcldGrid_[idx].entropySum;
+		ptcldGrid_[idx].meanEntropy = ptcldGrid_[idx].entropySum / (static_cast<double>(ptcldGrid_[idx].cloud_entropy->points.size() / stepSize_)); 
+		ptcldGrid_[idx].meanPlaneVariance = ptcldGrid_[idx].planeVarianceSum / (static_cast<double>(ptcldGrid_[idx].cloud_entropy->points.size() / stepSize_)); 
+		me_planeVarianceSum += ptcldGrid_[idx].planeVarianceSum;
+		me_lonelyPointsSum += ptcldGrid_[idx].lonelyPointsSum;
+		points_count += ptcldGrid_[idx].localCloud->points.size();
 	}
 
-	if (!fileNames_.size()) 
+	// compute mean
+	meanMapEntropy_ = me_entropySum / (static_cast<double>(points_count / stepSize_));
+	meanPlaneVariance_ = me_planeVarianceSum / (static_cast<double>(points_count / stepSize_));
+
+	std::cout << "--- " << std::endl;
+	std::cout << "Mean Map Entropy is " << meanMapEntropy_ << std::endl;
+	if (withPlaneVariance_)
+		std::cout << "Mean Plane Variance is " << meanPlaneVariance_ << std::endl;
+
+	for (int idx = 0; idx < ptcldGrid_.size(); idx++) {
+		//concatenate the pointcloud fields
+		pcl::toPCLPointCloud2 (*ptcldGrid_[idx].cloud_entropy, *ptcldGrid_[idx].outputCloud);
+		pcl::PCLPointCloud2::Ptr outputCloudConcat (new pcl::PCLPointCloud2);
+		pcl::concatenateFields(*ptcldGrid_[idx].inputCloud, *ptcldGrid_[idx].outputCloud, *outputCloudConcat);
+		ptcldGrid_[idx].outputCloud.reset (new pcl::PCLPointCloud2);
+		pcl::copyPointCloud(*outputCloudConcat, *ptcldGrid_[idx].outputCloud);
+
+		int pointsActuallyUsed = (ptcldGrid_[idx].localCloud->points.size() / stepSize_) - me_lonelyPointsSum;
+		if( punishSolitaryPoints_ && (pointsActuallyUsed < me_lonelyPointsSum) ){
+			std::cout << "Used more solitary than not-solitary points to compute the values. You should consider changing the parameters." << std::endl;
+		}
+	}
+}
+
+
+int MapEntropy::readPointCloud()
+{
+	pcl::PCDReader pcdR;
+	const size_t LARGE_POINTCLOUD_ = 500000; // experimental value
+
+	if (!fileNames_.size() || !fileIndices_.size()) 
 	{
-		PCL_ERROR ("Couldn't read any file. Please provide the name of at least one PCD file as input.\n");
+		std::cout << "Couldn't read any file. Please provide the name of at least one PCD file as input." << std::endl;
 		return 0;
 	}
 	
 	inputCloud_.reset (new pcl::PCLPointCloud2);
-	if (pcdR.read(argv[fileIndices_.at (0)], *inputCloud_, origin_, orientation_, version_) < 0)
+	if (pcdR.read(fileNames_.at(0), *inputCloud_, origin_, orientation_, version_) < 0)
 	{
-		PCL_ERROR ("Couldn't read file.\n");
+		std::cout << "ERROR: Couldn't read file \"" << fileNames_.at(0) << "\"" << std::endl;
 		return 0;
 	}
 	
@@ -412,25 +588,32 @@ int MapEntropy::readPointCloud( int argc, char** argv )
 	hasIntensityEntropyField_ = ((pcl::getFieldIndex(*inputCloud_, std::string("intensity_entropy"))) > -1);
 	hasPlaneVarianceField_ = ((pcl::getFieldIndex(*inputCloud_, std::string("planeVariance"))) > -1);
 
-	PCL_INFO("Input Cloud fields: [");
+	std::cout << "Input Cloud fields: [";
 	for (auto& f : inputCloud_->fields)
 	{
-		PCL_INFO("%s, ", f.name.c_str());
+		std::cout << f.name << ", ";
 	}
-	PCL_INFO("   Input cloud width: %d, height: %d \n", inputCloud_->width, inputCloud_->height);
-	//PCL_INFO("]\n");
-	//std::cout << "X field: " << hasXField_ << ", Y field: " << hasYField_ << ", Z field: " << hasZField_ << ", intensity field: " << hasIntensityField_ << ", entropy field: " << hasEntropyField_ << ", plane variance field: " << hasPlaneVarianceField_ << std::endl;
+	std::cout << "]  Input cloud width: " << inputCloud_->width << ", height: " << inputCloud_->height << std::endl;
 	
 	if (!(hasXField_ && hasYField_ && hasZField_))
 	{
-		PCL_ERROR ("Incorrect format in file, does not have XYZ fields. Aborting!\n");
+		std::cout << "ERROR: Incorrect format in file, does not have XYZ fields. Aborting!" << std::endl;
 		return 0;
 	}
    
     //for passFilter the pcd file needs to have entropy field
     if (passFilter_ && ((pcl::getFieldIndex(*inputCloud_, filterField_)) <= -1)) {
-    	PCL_ERROR("\"-passFilter\" option requires an input pointcloud with \"%s\" field, the provided PCD file doesn't have such field. Aborting!\n", filterField_.c_str());
+    	std::cout << "ERROR: \"-passFilter\" option requires an input pointcloud with \"" << filterField_ << "\" field, the provided PCD file doesn't have such field. Aborting!" << std::endl;
     	return 0;
+    }
+
+    //check the input pointcloud size, if too large advise to use -griddive param.
+    if (inputCloud_->width * inputCloud_->height > LARGE_POINTCLOUD_ && !grid_divide_) {
+    	std::cout << "Your pointcloud is larger than " << LARGE_POINTCLOUD_ << ", using the \"-griddivide\" (with corresponding \"-grid_size\") parameter is advised!" << std::endl;
+    }
+
+    if (grid_divide_ || divide_only_) {
+    	pointCloudToGrid();
     }
 
     return 1;
@@ -440,37 +623,189 @@ int MapEntropy::writePointCloud()
 {
 	pcl::PCDWriter pcdW;
 
-	// save output cloud in the directory of the input cloud
-	std::string saveDestination = fileNames_[0];
-	if (!passFilter_) {
-		std::string postname = "_entropy__r_" + std::to_string(radius_) + "_s_" + std::to_string(stepSize_) + "_sol_" + std::to_string(punishSolitaryPoints_) + "_minN_" + std::to_string(minNeighbors_);
-		postname = postname + "__meanEnt_" + std::to_string(meanMapEntropy_) + "__meanPlanVar_" + std::to_string(meanPlaneVariance_) + "__lonely_" + std::to_string(lonelyPoints_) + ".";
-		saveDestination.replace(saveDestination.find_last_of("."),1,postname);
-	} else {
-		std::string postname = "_filtered__f_" + filterField_ + "_min_" + std::to_string(minLimit_) + "_max_" + std::to_string(maxLimit_) + ".";
-		saveDestination.replace(saveDestination.find_last_of("."),1,postname);
-	}
-	if ( outputCloud_->data.size() > 0 )
-	{
-		PCL_INFO("Output Cloud fields: [");
-		for (auto& f : outputCloud_->fields)
-		{
-			PCL_INFO("%s, ", f.name.c_str());
-		}
-		PCL_INFO("]\n");
+	if ((grid_divide_ || divide_only_) && ptcldGrid_.size()) {
+	    for (int i = 0; i < ptcldGrid_.size(); i++) {
+	        if (ptcldGrid_[i].inputCloud && ptcldGrid_[i].inputCloud->width * ptcldGrid_[i].inputCloud->height > 0) {
+	        	//save each grid cells' pointcloud2 
+	        	if (pcdW.write(ptcldGrid_[i].filename, *ptcldGrid_[i].inputCloud, origin_, orientation_, (!saveASCII_)) >= 0) {
+	            	std::cout << "Wrote " << (ptcldGrid_[i].inputCloud->width * ptcldGrid_[i].inputCloud->height) << " points to file \"" << ptcldGrid_[i].filename << "\"" << std::endl;
+	        	}
+	        }
+	        if (ptcldGrid_[i].outputCloud && ptcldGrid_[i].outputCloud->width * ptcldGrid_[i].outputCloud->height > 0) {
+	            //and save the cell's entropy cloud
+	            std::string saveDestination = ptcldGrid_[i].filename;
+	            std::string postname = "_entropy__r_" + std::to_string(radius_) + "_s_" + std::to_string(stepSize_) + "_sol_" + std::to_string(punishSolitaryPoints_) + "_minN_" + std::to_string(minNeighbors_);
+				postname = postname + "__meanEnt_" + std::to_string(ptcldGrid_[i].meanEntropy) + "__meanPlanVar_" + std::to_string(ptcldGrid_[i].meanPlaneVariance) + "__lonely_" + std::to_string(ptcldGrid_[i].lonelyPointsSum) + ".";
+				saveDestination.replace(saveDestination.find_last_of("."),1,postname);
+				if (pcdW.write(saveDestination, *ptcldGrid_[i].outputCloud, origin_, orientation_, (!saveASCII_)) >= 0) {
+					//std::cout << "Output saved as \"" << saveDestination << "\"" << std::endl;
+					std::cout << "Wrote grid cell " << i << " to file \"" << saveDestination << "\"" << std::endl;
+				}
+	        }
+	    }
 
-		pcdW.write(saveDestination, *outputCloud_, origin_, orientation_, (!saveASCII_));
-		std::cout << "Output saved as \"" << saveDestination << "\"" << std::endl;
-	} else {
-		PCL_ERROR ("Empty cloud. Saving error.\n");
-		return 0;
+		sync();  //forces fs sync
+    } else if (!grid_divide_ && !divide_only_) {
+		// save output cloud in the directory of the input cloud
+		std::string saveDestination = fileNames_[0];
+		if (!passFilter_) {
+			std::string postname = "_entropy__r_" + std::to_string(radius_) + "_s_" + std::to_string(stepSize_) + "_sol_" + std::to_string(punishSolitaryPoints_) + "_minN_" + std::to_string(minNeighbors_);
+			postname = postname + "__meanEnt_" + std::to_string(meanMapEntropy_) + "__meanPlanVar_" + std::to_string(meanPlaneVariance_) + "__lonely_" + std::to_string(lonelyPoints_) + ".";
+			saveDestination.replace(saveDestination.find_last_of("."),1,postname);
+		} else {
+			std::string postname = "_filtered__f_" + filterField_ + "_min_" + std::to_string(minLimit_) + "_max_" + std::to_string(maxLimit_) + ".";
+			saveDestination.replace(saveDestination.find_last_of("."),1,postname);
+		}
+		if ( outputCloud_->data.size() > 0 )
+		{
+			std::cout << "Output Cloud fields: [";
+			for (auto& f : outputCloud_->fields)
+			{
+				std::cout << f.name << ", ";
+			}
+			std::cout << "]" << std::endl;
+
+			if (pcdW.write(saveDestination, *outputCloud_, origin_, orientation_, (!saveASCII_)) >= 0) {
+				std::cout << "Output saved as \"" << saveDestination << "\"" << std::endl;
+			}
+
+			sync();  //forces fs sync
+		} else {
+			std::cout << "ERROR: Empty cloud. Saving error." << std::endl;
+			return 0;
+		}
 	}
 	return 1; 
 }
 
+/**
+  * This code was inspired and partially based on the pcd_grid_divider implementation in Autoware
+  * Original author: Yuki Kitsukawa (yuki.kitsukawa@tier4.jp)
+  * This version can divide a pointcloud2 into grids, no need to know beforehand the pointcloud type
+  */
+void MapEntropy::pointCloudToGrid()
+{
+    double min_x = std::numeric_limits<double>::infinity();
+    double max_x = -std::numeric_limits<double>::infinity();
+    double min_y = std::numeric_limits<double>::infinity();
+    double max_y = -std::numeric_limits<double>::infinity();
+    int fieldIdxX = -1;
+    int fieldIdxY = -1;
+    int fieldIdxZ = -1;
+
+    fieldIdxX = pcl::getFieldIndex(*inputCloud_, "x");
+    fieldIdxY = pcl::getFieldIndex(*inputCloud_, "y");
+    fieldIdxZ = pcl::getFieldIndex(*inputCloud_, "z");
+    const auto offX = inputCloud_->fields[fieldIdxX].offset;
+    const auto offY = inputCloud_->fields[fieldIdxY].offset;
+    const auto offZ = inputCloud_->fields[fieldIdxZ].offset;
+
+
+    // Search minimum and maximum points along x and y axis.
+    //for (sensor_msgs::PointCloud2ConstIterator<float> it(*inputCloud_, "x"); it != it.end(); ++it) { //<-- cannot use sensor_msgs
+    // it[0] is x and it[1] is y
+    const std::uint8_t* inptr = &inputCloud_->data[0];
+    const auto incr = inputCloud_->point_step;
+    for (size_t point = 0; point < inputCloud_->height*inputCloud_->width; point++, inptr += incr) {
+    	const float* x = reinterpret_cast<const float*>(inptr + offX);
+    	const float* y = reinterpret_cast<const float*>(inptr + offY);
+    	//float* z = reinterpret_cast<float*>(inptr + offZ);
+	    if (*x < min_x) {
+	        min_x = *x;
+	    }
+	    if (*x > max_x) {
+	        max_x = *x;
+	    }
+	    if (*y < min_y) {
+	        min_y = *y;
+	    }
+	    if (*y > max_y) {
+	        max_y = *y;
+	    }
+    } // for 
+
+    // Find minimum and maximum boundary
+    int min_x_b = grid_size_ * static_cast<int>(floor(min_x / grid_size_));
+    int max_x_b = grid_size_ * static_cast<int>(floor(max_x / grid_size_) + 1);
+    int min_y_b = grid_size_ * static_cast<int>(floor(min_y / grid_size_));
+    int max_y_b = grid_size_ * static_cast<int>(floor(max_y / grid_size_) + 1);
+    ptcldGrid_.cellSize(grid_size_);
+    ptcldGrid_.setBounds(min_x, min_y, max_x, max_y);
+
+    if (ptcldGrid_.cellCount() == 1) {
+    	std::cout << "Grid division not possible: cell size of " << grid_size_ << " x " << grid_size_ << " is larger than the pointcloud bountaries [" << (max_x - min_x) << " x " << (max_y - min_y) << "]" << std::endl;
+    	grid_divide_ = false;
+    	return;
+    }
+
+    std::cout << "Dividing the input pointcloud into " << grid_size_ << " x " << grid_size_ << " cells, number of cells in the grid: " << ptcldGrid_.cellCount() << std::endl;
+
+    // Define filename, lower/upper bound of every grid
+    for (int row = 0; row < ptcldGrid_.divY(); row++) {
+      for (int col = 0; col < ptcldGrid_.divX(); col++) {
+        int id = ptcldGrid_.divX() * row + col;
+        ptcldGrid_.at(row, col).grid_id = id;
+        ptcldGrid_.at(row, col).grid_id_x = col;
+        ptcldGrid_.at(row, col).grid_id_y = row;
+        ptcldGrid_.at(row, col).lower_bound_x = ptcldGrid_.minX() + grid_size_ * col;
+        ptcldGrid_.at(row, col).lower_bound_y = ptcldGrid_.minY() + grid_size_ * row;
+        ptcldGrid_.at(row, col).upper_bound_x = ptcldGrid_.minX() + grid_size_ * (col + 1);
+        ptcldGrid_.at(row, col).upper_bound_y = ptcldGrid_.minY() + grid_size_ * (row + 1);
+        ptcldGrid_.at(row, col).filename = output_dir_ + name_prefix_ + "_" + std::to_string(grid_size_) + "_" +
+        	std::to_string(id) + "_" + std::to_string(ptcldGrid_.at(row, col).lower_bound_x) + "_" + std::to_string(ptcldGrid_.at(row, col).lower_bound_y) + ".pcd";
+
+ 		//create the local XYZ pointcloud for computing entropy
+        ptcldGrid_.at(row, col).localCloud.reset(new pcl::PointCloud<pcl::PointXYZ>);
+  		ptcldGrid_.at(row, col).localCloud->header   = inputCloud_->header;
+  		ptcldGrid_.at(row, col).localCloud->width    = 0;
+  		ptcldGrid_.at(row, col).localCloud->height   = inputCloud_->height;
+  		ptcldGrid_.at(row, col).localCloud->is_dense = inputCloud_->is_dense == 1;
+
+  		//create the input pointcloud2 used to write the submaps later
+        ptcldGrid_.at(row, col).inputCloud.reset (new pcl::PCLPointCloud2);
+        ptcldGrid_.at(row, col).inputCloud->header = inputCloud_->header;
+        ptcldGrid_.at(row, col).inputCloud->height = inputCloud_->height;
+        ptcldGrid_.at(row, col).inputCloud->width = 0;  // value is updated later
+        ptcldGrid_.at(row, col).inputCloud->is_bigendian = inputCloud_->is_bigendian;
+        ptcldGrid_.at(row, col).inputCloud->point_step = inputCloud_->point_step;
+        ptcldGrid_.at(row, col).inputCloud->row_step = 0;  // value is updated later
+        ptcldGrid_.at(row, col).inputCloud->is_dense = inputCloud_->is_dense;
+        //copy all the fields as they are
+        ptcldGrid_.at(row, col).inputCloud->fields = inputCloud_->fields;
+
+        //create the cloud for entropy information
+        ptcldGrid_.at(row, col).cloud_entropy.reset(new pcl::PointCloud< PointXYZWithEntropy >);
+      }  // for col
+    }  // for row
+
+
+    // Assign all points to appropriate grid according to their x/y value
+    inptr = &inputCloud_->data[0];
+    //for (sensor_msgs::PointCloud2ConstIterator<float> it(*inputCloud_, "x"); it != it.end(); ++it) {
+    // it[0] is x and it[1] is y and it[2] is z
+    for (size_t point = 0; point < inputCloud_->height*inputCloud_->width; point++) {
+    	const float* x = reinterpret_cast<const float*>(inptr + offX);
+    	const float* y = reinterpret_cast<const float*>(inptr + offY);
+    	const float* z = reinterpret_cast<const float*>(inptr + offZ);
+    	// int idx = static_cast<int>(floor((*x - static_cast<float>(min_x_b)) / grid_size_));
+     //  	int idy = static_cast<int>(floor((*y - static_cast<float>(min_y_b)) / grid_size_));
+     //  	int id = idy * div_x + idx;
+
+      	// add one point to the XYZ cloud
+      	pcl::PointXYZ tmp = pcl::PointXYZ(*x, *y, *z);
+      	ptcldGrid_.atCoords(*x, *y).localCloud->points.push_back(tmp);
+      	// and add one point to the PointCloud2 cloud
+    	for (size_t i = 0; i < incr; i++) {
+    		ptcldGrid_.atCoords(*x, *y).inputCloud->data.push_back(*inptr++);
+    	}
+    	ptcldGrid_.atCoords(*x, *y).inputCloud->width++;
+    	ptcldGrid_.atCoords(*x, *y).inputCloud->row_step = ptcldGrid_.atCoords(*x, *y).inputCloud->width * ptcldGrid_.atCoords(*x, *y).inputCloud->point_step;
+    }
+}
+
 void MapEntropy::filterPointCloud()
 {
-	PCL_WARN("Filtering by \"%s\" field.\n", filterField_.c_str());
+	std::cout << "Filtering by \"" << filterField_ << "\"  field."  << std::endl;
 	pcl::PassThrough<pcl::PCLPointCloud2> entropyFilter;
 	entropyFilter.setInputCloud(inputCloud_);
 	entropyFilter.setKeepOrganized(false);
@@ -481,26 +816,29 @@ void MapEntropy::filterPointCloud()
 	
 }
 
+void MapEntropy::computeEntropyOrFilter(const pcl::PCLPointCloud2::Ptr& inputCloud)
+{
+	inputCloud_.reset (new pcl::PCLPointCloud2);
+	pcl::copyPointCloud(*inputCloud, *inputCloud_);
+	pcl::fromPCLPointCloud2 (*inputCloud_, *cloud_xyz_);
+	computeEntroyAndVariance(cloud_xyz_);
+	if (passFilter_) {
+		filterPointCloud();
+	}
+}
+
 void MapEntropy::computeEntropyOrFilter()
 {
-	pcl::StopWatch entropyTimer;
-	entropyTimer.reset();
-
 	if (!passFilter_) {
-		// if (hasIntensityField_) {
-		// 	pcl::fromPCLPointCloud2 (*inputCloud_, *cloud_xyzi_);
-		// 	computeEntroyAndVariance(cloud_xyzi_);
-		// } else {
+		if (grid_divide_) {
+			computeEntroyAndVarianceFromGrid();
+		} else {
 			pcl::fromPCLPointCloud2 (*inputCloud_, *cloud_xyz_);
-			//pcl::copyPointCloud(*cloud_xyz_, *cloud_xyzi_);
-			// computeEntroyAndVariance(cloud_xyzi_);
 			computeEntroyAndVariance(cloud_xyz_);
-		// }
+		}
 	} else {
 		filterPointCloud();
 	}
-
-	PCL_INFO("Used %.6f seconds to filter values. Input size is %d points, output size is %d points.\n", entropyTimer.getTimeSeconds(), (inputCloud_->width * inputCloud_->height), (outputCloud_->width * outputCloud_->height));
 }
 
 }  // namespace
