@@ -7,6 +7,8 @@ Furthermore a pointcloud is generated that encodes the *Map Entropy* and *Plane 
 
 Filtering by field type was also included. ROS-mode and ROS-independent mode support was also added.
 
+![Entropy](docs/mms-map-entropy.png?raw=true "Entropy")  ![Plane Variance](docs/mms-plane-var.png?raw=true "Plane Variance")
+
 ## Credits 
 This code is based on the work by David Droeschel & Jan Razlaw:
 ```
@@ -54,24 +56,22 @@ You can use other arguments as defined in the launch file. And you can use RVIZ 
 ```
 Available arguments are as follows:
 
-* **stepsize:** stepsize used iterating through the pointcloud (default: 1)
-
-* **radius:** radius used for search for neighboring points (default: 0.3)
-
-* **punishSolitaryPoints:** (flag) punishes points with bad values where the number of neighbors is under minNeighbors 
-
-* **planevariance:** (flag) whether to compute the plane Variance or not 
-
-* **ascii:** (flag) whether to save the output point cloud file as ASCII PCD type
-
-* **minNeighbors:** threshold (default: 15)
-
-* **passfilter:** perform band pass filter on the values of the specified field
-
-* **filterField:** the field name for filtering
-
-* **minLimit:** minimum limit for filtering
-
-* **minLimit:** maximum limit for filtering
+- **stepsize:** stepsize used iterating through the pointcloud (default: 1)
+- **radius:** radius used for search for neighboring points (default: 0.3)
+- **punishSolitaryPoints:** (flag) punishes points with bad values where the number of neighbors is under minNeighbors 
+- **planevariance:** (flag) whether to compute the plane Variance or not 
+- **ascii:** (flag) whether to save the output point cloud file as ASCII PCD type
+- **minNeighbors:** threshold (default: 15)
+- **passfilter:** perform band pass filter on the values of the specified field
+- **filterField:** the field name for filtering
+- **minLimit:** minimum limit for filtering
+- **minLimit:** maximum limit for filtering
 
 Use the point cloud viewer of your choice to visualize the output (e.g. pcl_viewer).
+
+## TODO
+- [x] Add ROS support
+- [ ] There is a bug when generating the output pointcloud which removes the intensity field and adds extra annonymous ('-') fields
+- [ ] Computing map entropy and plane variance from a grid was started but the code is not finished
+- [ ] Other forms pointcloud evaluations, such as the mean shift distance 
+- [ ] It will be nice to add more filtering options, like filtering by multiple fields and with some regular expressions (ex. intensity in [min, max] AND entropy in [min, max])
